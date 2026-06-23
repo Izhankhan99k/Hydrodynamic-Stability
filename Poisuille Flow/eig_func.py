@@ -66,7 +66,7 @@ def solve_os_2d(alpha_val, Re_val, Nz):
 # --------------------------------------------------
 # 1. Solve and Filter (Two-Resolution Method)
 # --------------------------------------------------
-Re = 6000.0
+Re = 7000.0
 alpha = 1.0
 
 print(f"Solving 2D Orr-Sommerfeld at Re={Re}, alpha={alpha}...")
