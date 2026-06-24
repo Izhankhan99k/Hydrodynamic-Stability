@@ -79,7 +79,7 @@ sort_idx = np.argsort(z_vals)
 z_sorted = z_vals[sort_idx]
 
 targets = [
-    ("A-branch (Wall Mode)", 0.3 - 0.05j),
+    ("A-branch (Wall Mode)", 0.1 + 0.05j),
     ("P-branch (Center Mode)", 0.9 - 0.1j),
     ("S-branch (Damped Mode)", 0.1 - 0.5j)
 ]
@@ -165,7 +165,7 @@ plt.tight_layout()
 ani = animation.FuncAnimation(fig, update, frames=frames, interval=50, blit=False)
 
 # To save the animation to an MP4 or GIF, uncomment one of these lines:
-# ani.save('fluid_modes.gif', writer='pillow', fps=20)
+ ani.save('fluid_modes.gif', writer='pillow', fps=20)
 # ani.save('fluid_modes.mp4', writer='ffmpeg', fps=20)
 
 plt.show()
