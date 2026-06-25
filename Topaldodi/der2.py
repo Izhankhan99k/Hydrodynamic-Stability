@@ -250,7 +250,7 @@ if __name__ == "__main__":
     S    = 1.0
     Lam  = 1.0
     Pe   = 10.0
-    N    = 64        # Base Chebyshev modes
+    N    = 150       # Base Chebyshev modes
     tol  = 1e-4      # Convergence tolerance for resolution test
 
     # ------------------------------------------------------------------
