@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 # SOLVER
 # ======================================================================
 
-def solve_evp(Ra, Pe, Pr, S, Lam, k, N=64):
+def solve_evp(Ra, Pe, Pr, S, Lam, k, N=150):
     """
     Solve the coupled liquid–solid eigenvalue problem.
 
