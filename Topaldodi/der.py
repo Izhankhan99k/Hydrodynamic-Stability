@@ -150,7 +150,44 @@ def solve_evp(Ra, Pe, Pr, S, Lam, k, N=64):
 
     # -- solve --------------------------------------------------------
     solver = problem.build_solver()
-    solver.solve_dense(solver.subproblems[0])
+    
+    # In Dedalus v3, the matrices for the 1D EVP are in the first subproblem
+    subproblem = solver.subproblems[0]
+    
+    # Extract the sparse matrices (L and M)
+    L_sparse = subproblem.L_ext
+    M_sparse = subproblem.M_ext
+    
+    # Convert to dense numpy arrays so you can print or inspect them
+    L_dense = L_sparse.toarray()
+    M_dense = M_sparse.toarray()
+    
+    # Print the shapes (it will be an (8N+9) x (8N+9) matrix)
+    print(f"L matrix shape: {L_dense.shape}")
+    print(f"M matrix shape: {M_dense.shape}")
+    
+    # Plot the "sparsity pattern" (shows exactly where the non-zero elements are)
+    import matplotlib.pyplot as plt
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+    
+    # spy() plots a dot for every non-zero element in the matrix
+    ax1.spy(L_dense, markersize=1, color='navy')
+    ax1.set_title("L Matrix (Spatial Physics & BCs)")
+    
+    ax2.spy(M_dense, markersize=1, color='crimson')
+    ax2.set_title("M Matrix (Time Derivative / $\sigma$)")
+    
+    plt.tight_layout()
+    plt.savefig('matrix_structure.png', dpi=200)
+    plt.show()
+    
+    # You can also print the full matrices to the console or save to a text file:
+    # np.savetxt("L_matrix.csv", np.real(L_dense), delimiter=",")
+    # np.savetxt("M_matrix.csv", np.real(M_dense), delimiter=",")
+    
+    # Now solve the dense eigenvalue problem
+    solver.solve_dense(subproblem)
+    
     return solver.eigenvalues
 
 
@@ -262,3 +299,4 @@ if __name__ == "__main__":
     plt.savefig('stability_spectrum.png', dpi=200, bbox_inches='tight')
     plt.show()
     print("\nSaved figure -> stability_spectrum.png")
+  
