@@ -316,7 +316,7 @@ if __name__ == "__main__":
             f'(a) Eigenvalue Spectrum (converged modes)\n'
             f'Ra={Ra_spec:.0f}, Pe={Pe}, k={k_spec}, Pr={Pr}, S={S}, '
             r'$\Lambda$' + f'={Lam}', fontsize=12)
-        ax.legend(fontsize=11, loc='upper left')
+        ax.legend(fontsize=11, loc='upper right')
         # ---- Panel (b): Growth rate vs wavenumber ----
         ax2 = axes[1]
         for Ra_val, color in zip(Ra_list, colors):
