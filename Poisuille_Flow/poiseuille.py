@@ -128,13 +128,15 @@ plt.xlabel("Reynolds Number (Re)")
 plt.ylabel("Wavenumber (α)")
 plt.legend()
 plt.grid(True, linestyle='--', alpha=0.6)
+
+plt.savefig("neutral_curve.png", dpi=300, bbox_inches="tight")
 plt.tight_layout()
 plt.show()
 
 
 
 
-for i in [.5,1,2]:
+"""for i in [.5,1,2]:
     for j in [4000,5000,6000]:
         alpha_c=i
         Re_c=j
@@ -163,10 +165,10 @@ for i in [.5,1,2]:
         plt.legend()
         plt.grid(True, linestyle='--', alpha=0.5)
         plt.tight_layout()
-        plt.show()
+        plt.show()"""
 
 
-Re_fixed = 8000.0
+Re_fixed = 6000.0
 
 # We will sweep alpha from 0.6 to 1.2 to capture the whole unstable hump
 alpha_array = np.linspace(0.6, 1.2, 40)
@@ -198,4 +200,6 @@ plt.ylabel(r"Max Growth Rate ($c_i$)", fontsize=12)
 plt.grid(True, linestyle=':', alpha=0.7)
 plt.legend(loc='upper right')
 plt.tight_layout()
+
+plt.savefig("growthratevsalpha.png", dpi=300, bbox_inches="tight")
 plt.show()
