@@ -224,16 +224,12 @@ if __name__ == "__main__":
 
     # -- Panel (a): spectrum ------------------------------------------
     ax = axes[0]
-    stable   = evals[evals.real >= 0]
-    unstable = evals[evals.real <  0]
+   
 
-    ax.scatter(stable.real, stable.imag, s=18, c='steelblue',
+    ax.scatter(evals.real , evals.imag, s=18, c='steelblue',
                alpha=0.6, edgecolors='navy', linewidths=0.4,
                label=f'Stable ({len(stable)})')
-    if len(unstable) > 0:
-        ax.scatter(unstable.real, unstable.imag, s=80, c='crimson',
-                   marker='*', zorder=5, edgecolors='darkred', linewidths=0.4,
-                   label=f'Unstable ({len(unstable)})')
+   
 
     ax.axvline(0, color='grey', ls='--', lw=0.8, alpha=0.6)
     ax.set_xlabel(r'$\mathrm{Re}(\sigma)$', fontsize=14)
@@ -249,7 +245,7 @@ if __name__ == "__main__":
     # -- Panel (b): growth rate vs k ----------------------------------
     ax2 = axes[1]
     for Ra_val, color in zip(Ra_list, colors):
-        ax2.plot(k_vals, growth_data[Ra_val], '-o', color=color,
+        ax2.plot(k_vals, -growth_data[Ra_val], '-o', color=color,
                  markersize=3, lw=1.8, label=f'Ra = {Ra_val:.0f}')
 
     ax2.axhline(0, color='grey', ls='--', lw=0.8, alpha=0.6)
