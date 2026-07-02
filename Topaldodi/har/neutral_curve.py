@@ -1,18 +1,16 @@
 import numpy as np
-import matplotlib.pyplot as plt
 import dedalus.public as d3
 import logging
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
-# Fixed parameters matching the plot title: a=0, G=0
+# Fixed parameters
 a = 0         
 G = 0
 Bo = 1000.0   
 
 # --- HIGHER RESOLUTION MESH GENERATION ---
-# Swapping mesh orientation to match your reference paper layout (k on X-axis, Re on Y-axis)
 N_k = 60
 N_Re = 60
 
@@ -113,50 +111,11 @@ for i in range(N_Re):
         if counter % 300 == 0:
             print(f"Scan progress: {counter}/{total_points} cells complete.")
 
-# --- GENERATE THE EXACT PAPER VISUALIZATION STYLE ---
-# --- GENERATE THE EXACT PAPER VISUALIZATION STYLE ---
-fig, ax = plt.subplots(figsize=(7, 5.5))
-
-# Mask stable configurations to leave them completely white, filling only the unstable region (ci > 0)
-masked_ci = np.ma.masked_where(max_ci_grid <= 0, max_ci_grid)
-
-# --- NEW COLOR SCHEME TWEAKS ---
-# Using 'YlGn' (Yellow to Green transition) to perfectly match the color tone of the paper snippet
-contour_fill = ax.contourf(k_grid, Re_grid, masked_ci, levels=15, cmap=plt.cm.YlGn, alpha=0.9)
-
-# Draw the bold black/blue bounding Neutral Stability border line exactly at ci = 0
-# You can change colors=['black'] or colors=['blue'] depending on which baseline curve you want to emphasize
-ax.contour(k_grid, Re_grid, max_ci_grid, levels=[0.0], colors=['#1E3A8A'], linewidths=[2.5], zorder=4)
-
-# Set logarithmic scale for axes to match target dimensions
-ax.set_xscale('log')
-ax.set_yscale('log')
-
-# Explicitly set axis limits to match your paper clipping window
-ax.set_xlim(1e-2, 1e2)
-ax.set_ylim(1e-1, 1e5)
-
-# Minimalistic professional tick spacing adjustments
-ax.set_xticks([1e-2, 1e-1, 1e0, 1e1, 1e2])
-ax.set_yticks([1e-1, 1e1, 1e3, 1e5])
-
-# Axis labels matching the font format
-ax.set_xlabel(r'$k$', fontsize=15, style='italic', labelpad=5)
-ax.set_ylabel(r'$Re$', fontsize=15, style='italic', rotation=0, labelpad=15)
-ax.set_title(r'$a = 0, G = 0$', fontsize=14, pad=10)
-# Minimalistic professional tick spacing adjustments (Updated for all 4 sides)
-ax.tick_params(axis='both', which='major', labelsize=12, direction='in', 
-               length=6, top=True, right=True)
-ax.tick_params(axis='both', which='minor', direction='in', 
-               length=3, top=True, right=True)
-# Clean, scientific layout box styling
-ax.patch.set_facecolor('white')
-plt.grid(False) # Turn off grid lines to keep the clean look of the paper
-
-# Custom Paper Legend Emulation matching the new palette
-import matplotlib.patches as mpatches
-this_work_patch = mpatches.Patch(color="#C04343")
-ax.legend(handles=[this_work_patch], loc='lower left', fontsize=11, frameon=True, edgecolor='gray')
-plt.savefig('nscurve.png')
-plt.tight_layout()
-plt.show()
+# --- SAVE DATA ---
+np.savez("neutral_stability_map.npz", 
+         k_grid=k_grid, 
+         Re_grid=Re_grid, 
+         max_ci_grid=max_ci_grid,
+         a=a, G=G, Bo=Bo)
+         
+print("Data saved successfully to 'neutral_stability_map.npz'.")
