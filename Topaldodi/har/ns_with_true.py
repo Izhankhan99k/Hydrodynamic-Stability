@@ -26,10 +26,9 @@ fig, ax = plt.subplots(figsize=(7, 5.5))
 masked_ci = np.ma.masked_where(max_ci_grid <= 0, max_ci_grid)
 
 # Plot the background contour (Yellow to Green transition)
-contour_fill = ax.contourf(k_grid, Re_grid, masked_ci, levels=15, cmap=plt.cm.YlGn, alpha=0.9)
+contour_fill = ax.contourf(k_grid, Re_grid, masked_ci, levels=15, cmap=plt.cm.YlOrBr, alpha=0.9)
 
-# Draw the bold blue bounding Neutral Stability border line exactly at ci = 0
-ax.contour(k_grid, Re_grid, max_ci_grid, levels=[0.0], colors=['#1E3A8A'], linewidths=[2.5], zorder=4)
+
 
 # --- 4. PLOT YOUR TRUE CSV DATA ON TOP ---
 # Using solid black dots so they stand out clearly against the green/yellow background
