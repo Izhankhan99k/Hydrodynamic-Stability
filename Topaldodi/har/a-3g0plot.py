@@ -4,7 +4,7 @@ import matplotlib.patches as mpatches
 
 # --- 1. LOAD BACKGROUND MAP DATA ---
 # This loads the grid you already calculated
-data = np.load(".npz")
+data = np.load("a-3g0.npz")
 k_grid = data['k_grid']
 Re_grid = data['Re_grid']
 max_ci_grid = data['max_ci_grid']
@@ -61,5 +61,5 @@ handles.insert(0, this_work_patch)
 ax.legend(handles=handles, loc='lower left', fontsize=11, frameon=True, edgecolor='gray')
 
 plt.tight_layout()
-plt.savefig('a-1g0.png', dpi=300)
+plt.savefig('a-3g0.png', dpi=300)
 plt.show()

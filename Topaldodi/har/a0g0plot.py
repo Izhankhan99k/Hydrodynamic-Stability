@@ -6,13 +6,13 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Fixed parameters
-a = -1        
+a = 0         
 G = 0
 Bo = 1000.0   
 
 # --- HIGHER RESOLUTION MESH GENERATION ---
-N_k = 50
-N_Re = 50
+N_k = 60
+N_Re = 60
 
 k_space = np.logspace(-2, 2, N_k)     # k from 10^-2 to 10^2
 Re_space = np.logspace(-1, 5, N_Re)   # Re from 10^-1 to 10^5
@@ -99,8 +99,8 @@ for i in range(N_Re):
         cur_Re = Re_grid[i, j]
         
         # Balanced resolution configuration for precision boundary tracking
-        ev1 = solve_evp(130, cur_Re, cur_k)
-        ev2 = solve_evp(140, cur_Re, cur_k)
+        ev1 = solve_evp(64, cur_Re, cur_k)
+        ev2 = solve_evp(96, cur_Re, cur_k)
         evals = convergence_filter(ev1, ev2, tol=0.01)
         
         if len(evals) > 0:
@@ -112,10 +112,10 @@ for i in range(N_Re):
             print(f"Scan progress: {counter}/{total_points} cells complete.")
 
 # --- SAVE DATA ---
-np.savez("a-1g0.npz", 
+np.savez("neutral_stability_map.npz", 
          k_grid=k_grid, 
          Re_grid=Re_grid, 
          max_ci_grid=max_ci_grid,
          a=a, G=G, Bo=Bo)
          
-print("Data saved successfully to 'a-1g0.npz'.")
+print("Data saved successfully to 'a0g0.npz'.")
