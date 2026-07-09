@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
 # --- LOAD DATA ---
-data = np.load("neutral_stability_map.npz")
+data = np.load("stability_results.npz")
 k_grid = data['k_grid']
 Re_grid = data['Re_grid']
 max_ci_grid = data['max_ci_grid']

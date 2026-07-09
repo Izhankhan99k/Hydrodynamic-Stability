@@ -6,7 +6,7 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Fixed parameters
-a = -1        
+a = 0         
 G = 0
 Bo = 1000.0   
 
@@ -75,7 +75,7 @@ def solve_evp(N_res, Re_val, k_val):
     solver.solve_dense(solver.subproblems[0])
     return np.array(solver.eigenvalues)
 
-def convergence_filter(ev_lo, ev_hi, tol=0.001):
+def convergence_filter(ev_lo, ev_hi, tol=0.01):
     good = []
     for i, e in enumerate(ev_lo):
         if not np.isfinite(e): continue
@@ -101,7 +101,7 @@ for i in range(N_Re):
         # Balanced resolution configuration for precision boundary tracking
         ev1 = solve_evp(180, cur_Re, cur_k)
         ev2 = solve_evp(200, cur_Re, cur_k)
-        evals = convergence_filter(ev1, ev2, tol=0.0001)
+        evals = convergence_filter(ev1, ev2, tol=0.01)
         
         if len(evals) > 0:
             max_ci_grid[i, j] = np.max(evals.imag)
@@ -112,10 +112,10 @@ for i in range(N_Re):
             print(f"Scan progress: {counter}/{total_points} cells complete.")
 
 # --- SAVE DATA ---
-np.savez("a-1g0.npz", 
+np.savez("neutral_stability_map.npz", 
          k_grid=k_grid, 
          Re_grid=Re_grid, 
          max_ci_grid=max_ci_grid,
          a=a, G=G, Bo=Bo)
          
-print("Data saved successfully to 'a-1g0.npz'.")
+print("Data saved successfully to 'a0g0.npz'.")
