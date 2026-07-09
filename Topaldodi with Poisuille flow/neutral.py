@@ -118,5 +118,5 @@ if __name__ == "__main__":
     plt.ylim(np.min(k_array), np.max(k_array))
     plt.grid(True, linestyle=':', alpha=0.7)
     plt.tight_layout()
-    plt.save
+    
     plt.show()
