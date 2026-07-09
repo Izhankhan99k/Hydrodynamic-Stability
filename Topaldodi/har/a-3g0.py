@@ -6,13 +6,13 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Fixed parameters
-a = 0         
+a = -3       
 G = 0
 Bo = 1000.0   
 
 # --- HIGHER RESOLUTION MESH GENERATION ---
-N_k = 60
-N_Re = 60
+N_k = 50
+N_Re = 50
 
 k_space = np.logspace(-2, 2, N_k)     # k from 10^-2 to 10^2
 Re_space = np.logspace(-1, 5, N_Re)   # Re from 10^-1 to 10^5
@@ -112,10 +112,10 @@ for i in range(N_Re):
             print(f"Scan progress: {counter}/{total_points} cells complete.")
 
 # --- SAVE DATA ---
-np.savez("neutral_stability_map.npz", 
+np.savez("a-3g0.npz", 
          k_grid=k_grid, 
          Re_grid=Re_grid, 
          max_ci_grid=max_ci_grid,
          a=a, G=G, Bo=Bo)
          
-print("Data saved successfully to 'a0g0.npz'.")
+print("Data saved successfully to 'a-3g0.npz'.")

@@ -6,7 +6,7 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Fixed parameters
-a = -3       
+a = 3        
 G = 0
 Bo = 1000.0   
 
@@ -112,10 +112,10 @@ for i in range(N_Re):
             print(f"Scan progress: {counter}/{total_points} cells complete.")
 
 # --- SAVE DATA ---
-np.savez("a-3g0.npz", 
+np.savez("a3g0.npz", 
          k_grid=k_grid, 
          Re_grid=Re_grid, 
          max_ci_grid=max_ci_grid,
          a=a, G=G, Bo=Bo)
          
-print("Data saved successfully to 'a-3g0.npz'.")
+print("Data saved successfully to 'a3g0.npz'.")

@@ -11,8 +11,8 @@ G = 0
 Bo = 1000.0   
 
 # --- HIGHER RESOLUTION MESH GENERATION ---
-N_k = 50
-N_Re = 50
+N_k = 60
+N_Re = 60
 
 k_space = np.logspace(-2, 2, N_k)     # k from 10^-2 to 10^2
 Re_space = np.logspace(-1, 5, N_Re)   # Re from 10^-1 to 10^5
@@ -75,7 +75,7 @@ def solve_evp(N_res, Re_val, k_val):
     solver.solve_dense(solver.subproblems[0])
     return np.array(solver.eigenvalues)
 
-def convergence_filter(ev_lo, ev_hi, tol=0.01):
+def convergence_filter(ev_lo, ev_hi, tol=0.001):
     good = []
     for i, e in enumerate(ev_lo):
         if not np.isfinite(e): continue
@@ -99,9 +99,9 @@ for i in range(N_Re):
         cur_Re = Re_grid[i, j]
         
         # Balanced resolution configuration for precision boundary tracking
-        ev1 = solve_evp(130, cur_Re, cur_k)
-        ev2 = solve_evp(140, cur_Re, cur_k)
-        evals = convergence_filter(ev1, ev2, tol=0.01)
+        ev1 = solve_evp(180, cur_Re, cur_k)
+        ev2 = solve_evp(200, cur_Re, cur_k)
+        evals = convergence_filter(ev1, ev2, tol=0.0001)
         
         if len(evals) > 0:
             max_ci_grid[i, j] = np.max(evals.imag)
