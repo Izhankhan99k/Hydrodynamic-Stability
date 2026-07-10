@@ -101,7 +101,7 @@ for i in range(N_Re):
         # Balanced resolution configuration for precision boundary tracking
         ev1 = solve_evp(180, cur_Re, cur_k)
         ev2 = solve_evp(200, cur_Re, cur_k)
-        evals = convergence_filter(ev1, ev2, tol=0.0001)
+        evals = convergence_filter(ev1, ev2, tol=0.00001)
         
         if len(evals) > 0:
             max_ci_grid[i, j] = np.max(evals.imag)

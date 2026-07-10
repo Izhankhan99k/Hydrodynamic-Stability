@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-
+import matplotlib.colors as colors
 # --- 1. LOAD BACKGROUND MAP DATA ---
 # This loads the grid you already calculated
 data = np.load("a-3g0.npz")
@@ -21,9 +21,18 @@ fig, ax = plt.subplots(figsize=(7, 5.5))
 # Mask stable configurations to leave them completely white
 masked_ci = np.ma.masked_where(max_ci_grid <= 0, max_ci_grid)
 
-# Plot the background contour (Yellow to Green transition)
-contour_fill = ax.contourf(k_grid, Re_grid, masked_ci, levels=15, cmap=plt.cm.YlOrBr, alpha=0.9)
+c_min = 1e-4
+c_max = np.nanmax(masked_ci)
 
+# 2. Force Matplotlib to create exactly 200 slices logarithmically spaced
+smooth_log_levels = np.logspace(np.log10(c_min), np.log10(c_max), 100)
+
+# 3. Plot with the explicit levels array
+contour_fill = ax.contourf(k_grid, Re_grid, masked_ci, 
+                           levels=smooth_log_levels, 
+                           cmap='YlGnBu_r', 
+                           norm=colors.LogNorm(vmin=c_min, vmax=c_max), 
+                           alpha=0.9)
 
 # --- 5. AXIS SCALING AND FORMATTING ---
 ax.set_xscale('log')
@@ -61,5 +70,5 @@ handles.insert(0, this_work_patch)
 ax.legend(handles=handles, loc='lower left', fontsize=11, frameon=True, edgecolor='gray')
 
 plt.tight_layout()
-plt.savefig('a-3g0.png', dpi=300)
+plt.savefig('a-1g0.png', dpi=300)
 plt.show()

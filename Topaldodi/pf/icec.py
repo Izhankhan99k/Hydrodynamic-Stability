@@ -2,217 +2,208 @@ import numpy as np
 import matplotlib.pyplot as plt
 import dedalus.public as d3
 import logging
+import time
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Suppress logging to keep the terminal progress tracker clean
+logging.getLogger('dedalus').setLevel(logging.WARNING)
 
-# ═══════════════════════════════════════════════════════════
-#  Physical parameters
-# ═══════════════════════════════════════════════════════════
-Ra   = 0           # Rayleigh number
-Pe   = 10000.0     # Peclet number
-Pr   = 1.0         # Prandtl number
-S    =   1 # Stefan number
-Lam  = 0.5         # Lambda = (Tm - Tc) / DeltaT
-k    = 2.04221         # streamwise wavenumber
-m    = 0.0         # spanwise wavenumber
-gamma2 = k**2 + m**2
-d0     = Lam        # base-state solid thickness  (d0 = Lambda)
-
-# POISEUILLE: centerline-normalized base flow  U0(z) = 4z(1-z)
-DU0_at_1  = -4.0     # dU0/dz at z=1
-D2U0      = -8.0     # d^2U0/dz^2, constant everywhere for this profile
-
-# ═══════════════════════════════════════════════════════════
-#  EVP solver function
-# ═══════════════════════════════════════════════════════════
-def solve_evp(N):
+def get_eigenvalues(Pe, k_val, Ra, S, Lambda, d0, N):
     """
-    Build and solve the coupled generalised eigenvalue problem
-    at Chebyshev resolution N.  Returns the array of eigenvalues.
+    Solves the fully coupled multiphysics EVP and returns all scaled eigenvalues 
+    for a given resolution N.
     """
-    # ── coordinate, basis ──────────────────────────────────
-    coord = d3.Coordinate('z')
-    dist  = d3.Distributor(coord, dtype=np.complex128)
-    basis = d3.Chebyshev(coord, size=N, bounds=(0, 1))
-    z     = dist.local_grid(basis)
+    j = 1j
+    Pr = 1.0        
 
-    # ── operators ──────────────────────────────────────────
-    dz = lambda A: d3.Differentiate(A, coord)
-    try:
-        lift_basis = basis.derivative_basis(1)
-    except AttributeError:
-        lift_basis = basis          # fallback for older builds
-    lift = lambda A: d3.Lift(A, lift_basis, -1)
+    zcoord = d3.Coordinate('z')
+    dist = d3.Distributor(zcoord, dtype=np.complex128)
+    
+    # Dual domains for Liquid and Solid
+    basis_l = d3.ChebyshevT(zcoord, size=N, bounds=(0, 1))
+    basis_s = d3.ChebyshevT(zcoord, size=N, bounds=(1, 1 + d0))
+    zl_grid = dist.local_grid(basis_l)
 
-    # ── basis-dependent fields ─────────────────────────────
-    w   = dist.Field(name='w',   bases=basis)   # vertical velocity
-    wz  = dist.Field(name='wz',  bases=basis)   # Dw
-    Lw  = dist.Field(name='Lw',  bases=basis)   # (D^2 - g^2)w
-    Lwz = dist.Field(name='Lwz', bases=basis)   # D[(D^2 - g^2)w]
-    tl  = dist.Field(name='tl',  bases=basis)   # theta_l
-    tlz = dist.Field(name='tlz', bases=basis)   # D(theta_l)
-    ts  = dist.Field(name='ts',  bases=basis)   # theta_s
-    tsz = dist.Field(name='tsz', bases=basis)   # D_zeta(theta_s)
+    # Base State (Liquid)
+    U = dist.Field(name='U', bases=basis_l)
+    U['g'] = 1 - zl_grid**2
+    Uzz = dist.Field(name='Uzz', bases=basis_l)
+    Uzz['g'] = -2 * np.ones_like(zl_grid)
 
-    # ── scalar fields ──────────────────────────────────────
-    h     = dist.Field(name='h')                # interface amplitude
-    sigma = dist.Field(name='sigma')            # eigenvalue
+    # Fields
+    w = dist.Field(name='w', bases=basis_l)
+    wz = dist.Field(name='wz', bases=basis_l)
+    wzz = dist.Field(name='wzz', bases=basis_l)
+    wzzz = dist.Field(name='wzzz', bases=basis_l)
+    theta_l = dist.Field(name='theta_l', bases=basis_l)
+    theta_lz = dist.Field(name='theta_lz', bases=basis_l)
+    theta_s = dist.Field(name='theta_s', bases=basis_s)
+    theta_sz = dist.Field(name='theta_sz', bases=basis_s)
+    h = dist.Field(name='h')
+    sigma = dist.Field(name='sigma')
 
-    # ── tau fields  (8 total → one per BC) ─────────────────
-    tw1  = dist.Field(name='tw1')
-    tw2  = dist.Field(name='tw2')
-    tw3  = dist.Field(name='tw3')
-    tw4  = dist.Field(name='tw4')
-    ttl1 = dist.Field(name='ttl1')
-    ttl2 = dist.Field(name='ttl2')
-    tts1 = dist.Field(name='tts1')
-    tts2 = dist.Field(name='tts2')
+    # Tau polynomials
+    tau_w1 = dist.Field(name='tau_w1')
+    tau_w2 = dist.Field(name='tau_w2')
+    tau_w3 = dist.Field(name='tau_w3')
+    tau_w4 = dist.Field(name='tau_w4')
+    tau_tl1 = dist.Field(name='tau_tl1')
+    tau_tl2 = dist.Field(name='tau_tl2')
+    tau_ts1 = dist.Field(name='tau_ts1')
+    tau_ts2 = dist.Field(name='tau_ts2')
 
-    # ── base-state profile ─────────────────────────────────
-    U0 = dist.Field(name='U0', bases=basis)
-    U0['g'] = 4.0 * z * (1.0 - z)
+    # Operators
+    dz = lambda A: d3.Differentiate(A, zcoord)
+    lift_l = lambda A: d3.Lift(A, basis_l.derivative_basis(1), -1)
+    lift_s = lambda A: d3.Lift(A, basis_s.derivative_basis(1), -1)
 
-    # ── namespace for equation parser ──────────────────────
-    ns = dict(
-        Ra=Ra, Pe=Pe, Pr=Pr, S=S, Lam=Lam,
-        k=k, gamma2=gamma2, d0=d0,
-        D2U0=D2U0,
-        w=w, wz=wz, Lw=Lw, Lwz=Lwz,
-        tl=tl, tlz=tlz, ts=ts, tsz=tsz,
-        h=h, sigma=sigma, U0=U0,
-        dz=dz, lift=lift,
-        tw1=tw1, tw2=tw2, tw3=tw3, tw4=tw4,
-        ttl1=ttl1, ttl2=ttl2, tts1=tts1, tts2=tts2,
-    )
-    variables = [w, wz, Lw, Lwz, tl, tlz, ts, tsz, h,
-                 tw1, tw2, tw3, tw4, ttl1, ttl2, tts1, tts2]
-    problem = d3.EVP(variables, eigenvalue=sigma, namespace=ns)
+    variables = [w, wz, wzz, wzzz, theta_l, theta_lz, theta_s, theta_sz, h,
+                 tau_w1, tau_w2, tau_w3, tau_w4, tau_tl1, tau_tl2, tau_ts1, tau_ts2]
+                 
+    problem = d3.EVP(variables, eigenvalue=sigma, namespace=locals())
 
-    # ── Orr-Sommerfeld  (4th order in w) ──────────────────
-    problem.add_equation("wz  - dz(w)                  + lift(tw1)  = 0")
-    problem.add_equation("dz(wz) - gamma2*w - Lw       + lift(tw2)  = 0")
-    problem.add_equation("Lwz - dz(Lw)                 + lift(tw3)  = 0")
+    # --- Equations ---
+    problem.add_equation("dz(w) - wz + lift_l(tau_w1) = 0")
+    problem.add_equation("dz(wz) - wzz + lift_l(tau_w2) = 0")
+    problem.add_equation("dz(wzz) - wzzz + lift_l(tau_w3) = 0")
     problem.add_equation(
-        "Pr*(dz(Lwz) - gamma2*Lw)"
-        " - 1j*k*Pe*U0*Lw"
-        " + 1j*k*Pe*D2U0*w"
-        " - gamma2*Ra*Pr/Pe*tl"
-        " + 1j*sigma*Lw"
-        " + lift(tw4) = 0"
+        "sigma*(wzz - k_val**2 * w) "
+        "- Pr*(dz(wzzz) - 2*k_val**2 * wzz + k_val**4 * w) "
+        "+ Pe*(j*k_val*U*(wzz - k_val**2 * w) - j*k_val*Uzz*w) "
+        "+ (k_val**2 * Ra * Pr / Pe) * theta_l + lift_l(tau_w4) = 0"
     )
-
-    # ── Liquid heat  (2nd order) ──────────────────────────
-    problem.add_equation("tlz - dz(tl) + lift(ttl1) = 0")
+    
+    problem.add_equation("dz(theta_l) - theta_lz + lift_l(tau_tl1) = 0")
     problem.add_equation(
-        "dz(tlz) - gamma2*tl"
-        " - 1j*k*Pe*U0*tl"
-        " + Pe*w"
-        " + 1j*sigma*tl"
-        " + lift(ttl2) = 0"
+        "sigma*theta_l - (dz(theta_lz) - k_val**2 * theta_l) "
+        "+ Pe*(j*k_val*U*theta_l - w) + lift_l(tau_tl2) = 0"
     )
 
-    # ── Solid heat  (2nd order, mapped domain) ────────────
-    problem.add_equation("tsz - dz(ts) + lift(tts1) = 0")
-    problem.add_equation(
-        "1/d0**2*dz(tsz)"
-        " - gamma2*ts"
-        " + 1j*sigma*ts"
-        " + lift(tts2) = 0"
-    )
+    problem.add_equation("dz(theta_s) - theta_sz + lift_s(tau_ts1) = 0")
+    problem.add_equation("sigma*theta_s - (dz(theta_sz) - k_val**2 * theta_s) + lift_s(tau_ts2) = 0")
+    
+    problem.add_equation("sigma*h - (1 / (Lambda * S)) * (theta_sz(z=1) - theta_lz(z=1)) = 0")
 
-    # ── Boundary Conditions ────────────────────────────────
-    problem.add_equation("w(z=0)  = 0")
-    problem.add_equation("wz(z=0) = 0")
-    problem.add_equation("tl(z=0) = 0")
-    problem.add_equation("ts(z=0) = 0")
-    problem.add_equation("w(z=1) + 4*1j*k*h  = 0")
-    problem.add_equation("wz(z=1) = 0")
-    problem.add_equation("tl(z=1) - h = 0")
-    problem.add_equation("ts(z=1) - h = 0")
+    # --- Boundary Conditions ---
+    top_z = 1 + d0
+    problem.add_equation("w(z=-1) = 0")
+    problem.add_equation("wz(z=-1) = 0")
+    problem.add_equation("theta_l(z=-1) = 0")
+    problem.add_equation(f"theta_s(z={top_z}) = 0")
+    problem.add_equation("w(z=1) = 0")
+    problem.add_equation("wz(z=1) + 4*j*k_val*h = 0")
+    problem.add_equation("theta_l(z=1) - h = 0")
+    problem.add_equation("theta_s(z=1) - h = 0")
 
-    # ── Stefan Condition ───────────────────────────────────
-    problem.add_equation(
-        "+1/d0*tsz(z=1) - tlz(z=1) - 1j*sigma*Lam*S*h = 0"
-    )
-
-    # ── solve ──────────────────────────────────────────────
     solver = problem.build_solver()
     solver.solve_dense(solver.subproblems[0])
-    return np.array(solver.eigenvalues)
 
-# ═══════════════════════════════════════════════════════════
-#  Solve at TWO resolutions for convergence-based filtering
-# ═══════════════════════════════════════════════════════════
-N1, N2 = 160,170
-logger.info(f"Solving EVP at N = {N1} ...")
-ev1 = solve_evp(N1)
-logger.info(f"  → {len(ev1)} raw eigenvalues")
-logger.info(f"Solving EVP at N = {N2} for convergence check ...")
-ev2 = solve_evp(N2)
-logger.info(f"  → {len(ev2)} raw eigenvalues")
+    # Extract, filter infinites/NaNs, and scale back to advective timescale
+    evals = solver.eigenvalues
+    finite_evals = evals[np.isfinite(evals)]
+    return finite_evals / Pe
 
-# ═══════════════════════════════════════════════════════════
-#  Convergence filter
-# ═══════════════════════════════════════════════════════════
-def convergence_filter(ev_lo, ev_hi, tol=0.05):
-    good = []
-    for i, e in enumerate(ev_lo):
-        if not np.isfinite(e):
-            continue
-        denom = max(abs(e), 1.0)
-        if np.min(np.abs(ev_hi - e)) / denom < tol:
-            good.append(i)
-    if len(good) == 0:
-        logger.warning("Convergence filter returned nothing → falling back to magnitude filter |σ| < 10·Pe")
-        mask = np.isfinite(ev_lo) & (np.abs(ev_lo) < 10 * Pe)
-        return ev_lo[mask]
-    return ev_lo[good]
 
-evals = convergence_filter(ev1, ev2, tol=0.05)
-logger.info(f"Retained {len(evals)} / {len(ev1)} converged eigenvalues")
+def get_clean_eigenspectrum(Pe, k_val, Ra, S, Lambda, d0, N1=150, N2=160, tol=1e-5):
+    """
+    Solves the EVP at two different resolutions (N1, N2).
+    Cross-references the complex eigenvalues. If an eigenvalue drifts by more 
+    than 'tol' between N1 and N2, it is flagged as spurious and removed.
+    """
+    print(f"Solving EVP at N={N1}...")
+    evals_N1 = get_eigenvalues(Pe, k_val, Ra, S, Lambda, d0, N1)
+    
+    print(f"Solving EVP at N={N2}...")
+    evals_N2 = get_eigenvalues(Pe, k_val, Ra, S, Lambda, d0, N2)
 
-cr = evals.real / (k * Pe)    # phase speed
-ci = evals.imag / (k * Pe)    # growth rate
+    # Cross-reference: Calculate the distance matrix between all N1 and N2 eigenvalues
+    # NumPy broadcasting creates an array of shape (len(evals_N1), len(evals_N2))
+    diffs = np.abs(evals_N1[:, np.newaxis] - evals_N2[np.newaxis, :])
+    
+    # Find the minimum distance to any N2 eigenvalue for each N1 eigenvalue
+    min_diffs = np.min(diffs, axis=1)
 
-# Identify unstable vs stable modes
-unstable_mask = ci > 0
-stable_mask = ci <= 0
+    # Keep only the N1 eigenvalues that have a stationary match in N2
+    clean_mask = min_diffs < tol
+    clean_evals = evals_N1[clean_mask]
 
-logger.info(f"Found {np.sum(unstable_mask)} unstable mode(s) with c_i > 0")
-if np.any(unstable_mask):
-    idx = np.argmax(ci)
-    logger.info(f"Most unstable mode:  σ = {cr[idx]:.4f} {ci[idx]:+.4f}i")
+    print(f"Filtering complete: Kept {len(clean_evals)} physical modes out of {len(evals_N1)} total modes.")
 
-# ═══════════════════════════════════════════════════════════
-#  Plot
-# ═══════════════════════════════════════════════════════════
-fig, ax = plt.subplots(figsize=(10, 6))
+    # Convert to physical quantities
+    raw_gr = evals_N1.real
+    raw_ps = -evals_N1.imag / k_val
+    
+    clean_gr = clean_evals.real
+    clean_ps = -clean_evals.imag / k_val
 
-# Plot stable modes as open blue circles
-ax.scatter(cr[stable_mask], ci[stable_mask], s=55, marker='o',
-           facecolors='none', edgecolors='blue',
-           linewidths=1.2, zorder=3, label='Stable Modes ($c_i \leq 0$)')
+    return raw_gr, raw_ps, clean_gr, clean_ps
 
-# NEW: Plot ALL unstable modes as red stars
-ax.scatter(cr[unstable_mask], ci[unstable_mask], s=200, marker='*',
-           color='red', edgecolors='k',
-           linewidths=0.8, zorder=5, label='Unstable Modes ($c_i > 0$)')
 
-ax.axhline(0, color='gray', ls='--', lw=1, alpha=0.7)
-ax.set_xlabel(r'Phase Speed  ($c_r$)', fontsize=14)
-ax.set_ylabel(r'Growth Rate  ($c_i$)',  fontsize=14)
-ax.set_title(
-    f'Coupled Phase-Change Spectrum (Poiseuille)\n'
-    f'Ra={Ra:.0f},  Pe={Pe:.1f},  k={k}',
-    fontsize=14)
-ax.legend(fontsize=11, loc='lower right')
-ax.grid(True, ls=':', alpha=0.5)
-ax.tick_params(labelsize=12)
-plt.tight_layout()
-plt.xlim(-0.25, 1)
-plt.ylim(-3, 1)
-plt.savefig('eigenvalue_spectrum_poiseuille.png', dpi=500)
+# =========================================================================
+# Execution: Eigenspectrum Plotting
+# =========================================================================
+if __name__ == "__main__":
+    
+    # ---------------------------------------------------------
+    # USER CONFIGURATION
+    # ---------------------------------------------------------
+    TARGET_Pe = 15000       
+    TARGET_k = 2.0          
+    USER_Ra = 0.0           
+    USER_S = 1e6            
+    USER_Lambda = 1.0       
+    USER_d0 = 1.0           
+    
+    RES_1 = 140
+    RES_2 = 150
+    TOLERANCE = 1e-4
+    # ---------------------------------------------------------
+    
+    print(f"--- Generating Cleaned Eigenspectrum ---")
+    start_time = time.time()
+    
+    raw_gr, raw_ps, clean_gr, clean_ps = get_clean_eigenspectrum(
+        Pe=TARGET_Pe, 
+        k_val=TARGET_k, 
+        Ra=USER_Ra, 
+        S=USER_S, 
+        Lambda=USER_Lambda, 
+        d0=USER_d0, 
+        N1=RES_1, 
+        N2=RES_2,
+        tol=TOLERANCE
+    )
+    
+    elapsed = time.time() - start_time
+    print(f"Total solve time: {elapsed:.2f} seconds.")
 
-plt.show()
-logger.info("Plot saved → eigenvalue_spectrum_poiseuille.png")
+    # --- Visualization ---
+    plt.figure(figsize=(9, 7))
+    
+    # 1. Plot the discarded (spurious) modes as faded points in the background
+    plt.scatter(raw_gr, raw_ps, color='lightgray', alpha=0.5, marker='x', 
+                label='Spurious (Discarded) Modes')
+    
+    # 2. Plot the converged (physical) modes clearly
+    plt.scatter(clean_gr, clean_ps, color='crimson', edgecolors='k', s=60, zorder=5, 
+                label='Physical (Converged) Modes')
+    
+    # Reference lines
+    plt.axvline(0, color='black', linestyle='--', linewidth=1.5, label='Neutral Stability ($\sigma_r = 0$)')
+    plt.axhline(0, color='gray', linestyle='-', linewidth=0.8)
+    
+    # Restrict axes to view the actual physics, otherwise the plot gets skewed by 
+    # highly negative spurious values outside our viewing window.
+    plt.xlim(-100.0, 100.0) 
+    plt.ylim(-5.0, 5.0)
+    
+    # Formatting
+    plt.title(f'Converged Eigenspectrum ($Pe={TARGET_Pe}$, $k={TARGET_k}$)\nFiltered via $N_1={RES_1}$, $N_2={RES_2}$ drift check', 
+              fontsize=14, pad=15)
+    plt.xlabel('Growth Rate $\sigma_r$', fontsize=13)
+    plt.ylabel('Phase Speed ($- \sigma_i / k$)', fontsize=13)
+    
+    plt.legend(loc='lower left')
+    plt.grid(True, linestyle=':', alpha=0.7)
+    plt.tight_layout()
+    
+    plt.show()
