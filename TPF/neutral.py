@@ -1,34 +1,33 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
 import dedalus.public as d3
 import logging
-import time
 import os
+import multiprocessing as mp
+import time
 
-# Suppress logging to keep the terminal progress tracker clean
 logging.getLogger('dedalus').setLevel(logging.WARNING)
 
-def solve_evp_raw(Pe, k_val, Ra, S, Lambda, d0, N):
-    """Builds and solves the EVP for a given resolution N."""
+def get_coupled_max_growth(Pe, k_val, Ra, S, Lambda, d0, N=64):
+    """
+    Solves the fully coupled multiphysics EVP for a specific Pe and k.
+    Returns the maximum physical growth rate scaled to the advective timescale.
+    """
     j = 1j
     Pr = 1.0        
 
     zcoord = d3.Coordinate('z')
     dist = d3.Distributor(zcoord, dtype=np.complex128)
     
-    # Dual domains for Liquid and Solid
     basis_l = d3.ChebyshevT(zcoord, size=N, bounds=(0, 1))
     basis_s = d3.ChebyshevT(zcoord, size=N, bounds=(1, 1 + d0))
     zl_grid = dist.local_grid(basis_l)
 
-    # Base State (Liquid)
     U = dist.Field(name='U', bases=basis_l)
     U['g'] = 4 * zl_grid * (1 - zl_grid)
     Uzz = dist.Field(name='Uzz', bases=basis_l)
     Uzz['g'] = -8 * np.ones_like(zl_grid)
 
-    # Fields & Taus
     w = dist.Field(name='w', bases=basis_l)
     wz = dist.Field(name='wz', bases=basis_l)
     wzz = dist.Field(name='wzz', bases=basis_l)
@@ -49,7 +48,6 @@ def solve_evp_raw(Pe, k_val, Ra, S, Lambda, d0, N):
     tau_ts1 = dist.Field(name='tau_ts1')
     tau_ts2 = dist.Field(name='tau_ts2')
 
-    # Operators
     dz = lambda A: d3.Differentiate(A, zcoord)
     lift_l = lambda A: d3.Lift(A, basis_l.derivative_basis(1), -1)
     lift_s = lambda A: d3.Lift(A, basis_s.derivative_basis(1), -1)
@@ -59,7 +57,6 @@ def solve_evp_raw(Pe, k_val, Ra, S, Lambda, d0, N):
                  
     problem = d3.EVP(variables, eigenvalue=sigma, namespace=locals())
 
-    # --- Equations ---
     problem.add_equation("dz(w) - wz + lift_l(tau_w1) = 0")
     problem.add_equation("dz(wz) - wzz + lift_l(tau_w2) = 0")
     problem.add_equation("dz(wzz) - wzzz + lift_l(tau_w3) = 0")
@@ -78,7 +75,6 @@ def solve_evp_raw(Pe, k_val, Ra, S, Lambda, d0, N):
     problem.add_equation("sigma*theta_s - (dz(theta_sz) - k_val**2 * theta_s) + lift_s(tau_ts2) = 0")
     problem.add_equation("sigma*h - (1 / (Lambda * S)) * (theta_sz(z=1) - theta_lz(z=1)) = 0")
 
-    # --- Boundary Conditions ---
     top_z = 1 + d0
     problem.add_equation("w(z=0) = 0")
     problem.add_equation("wz(z=0) = 0")
@@ -93,141 +89,128 @@ def solve_evp_raw(Pe, k_val, Ra, S, Lambda, d0, N):
     solver.solve_dense(solver.subproblems[0])
 
     evals = solver.eigenvalues
-    return evals[np.isfinite(evals)] / Pe
+    finite_evals = evals[np.isfinite(evals)]
+    scaled_evals = finite_evals / Pe
+    
+    growth_rates = scaled_evals.real
+    phase_speeds = -scaled_evals.imag / k_val
+
+    mask = (growth_rates > -1.5) & (phase_speeds > -0.5) & (phase_speeds < 1.5)
+    clean_growth = growth_rates[mask]
+    
+    if len(clean_growth) > 0:
+        return np.max(clean_growth)
+    else:
+        return -1.0
 
 
-def get_coupled_max_growth(Pe, k_val, Ra, S, Lambda, d0, N1=40, N2=56, tol=1e-3):
-    """Two-grid resolution filter to extract the absolute max physical growth rate."""
-    ev1 = solve_evp_raw(Pe, k_val, Ra, S, Lambda, d0, N1)
-    ev2 = solve_evp_raw(Pe, k_val, Ra, S, Lambda, d0, N2)
+def compute_growth_grid(Pe_array, k_array, S, Ra=0.0, Lambda=1.0, d0=1.0, N=64):
+    """Sweep over (Pe, k) for a given S and return the growth matrix."""
+    num_Pe = len(Pe_array)
+    num_k = len(k_array)
+    Pe_grid, k_grid = np.meshgrid(Pe_array, k_array)
+    growth_grid = np.zeros_like(Pe_grid)
+    
+    total = num_Pe * num_k
+    count = 0
+    for i in range(num_k):
+        for j in range(num_Pe):
+            growth_grid[i, j] = get_coupled_max_growth(
+                Pe=Pe_grid[i, j], k_val=k_grid[i, j],
+                Ra=Ra, S=S, Lambda=Lambda, d0=d0, N=N
+            )
+            count += 1
+            if count % 50 == 0:
+                print(f"  S={S}: {count}/{total} solves", flush=True)
+    return Pe_grid, k_grid, growth_grid
 
-    physical_evals = []
-    for e1 in ev1:
-        drift = np.min(np.abs(ev2 - e1))
-        denom = max(abs(e1), 1.0)
-        if (drift / denom) < tol:
-            physical_evals.append(e1)
+def compute_for_S(args):
+    """Wrapper that unpacks arguments, calls grid compute, and saves backup."""
+    S, Pe_array, k_array, Ra, Lambda, d0, N = args
+    pid = os.getpid()
+    print(f"[PID {pid}] Starting S={S}", flush=True)
+    t0 = time.time()
+    Pe_grid, k_grid, growth_grid = compute_growth_grid(
+        Pe_array, k_array, S,
+        Ra=Ra, Lambda=Lambda, d0=d0, N=N
+    )
+    elapsed = time.time() - t0
+    print(f"[PID {pid}] Finished S={S} in {elapsed:.1f} s", flush=True)
+    
+    # Backup checkpoint save per process
+    filename = f"stability_data_S_{S}.npz"
+    np.savez_compressed(filename, Pe_grid=Pe_grid, k_grid=k_grid, growth_grid=growth_grid)
+    return S, Pe_grid, k_grid, growth_grid
 
-    physical_evals = np.array(physical_evals)
 
-    if len(physical_evals) == 0:
-        return -1.0  # Safe floor value for stable region if no modes converge
-
-    return np.max(physical_evals.real)
-
-
-# =========================================================================
-# Execution: Multi-Curve Grid Sweeping & Plotting
-# =========================================================================
 if __name__ == "__main__":
-    
-    # ---------------------------------------------------------
-    # PARAMETER SETUP
-    # ---------------------------------------------------------
-    USER_Ra = 0.0       
-    USER_Lambda = 1.0   
-    USER_d0 = 1.0       
-    
-    # The array of Stefan numbers you requested
-    S_values = [1, 5, 10, 100, 1000, 10000, 100000]
-    
-    # Grid Resolution (Keep moderate to avoid infinite compute times)
-    num_Pe = 40
-    num_k = 40
-    
+    # Parameters
+    USER_Ra = 0.0
+    USER_Lambda = 1.0
+    USER_d0 = 1.0
+    N_res = 64
+    S_values = [0.00001,0.0001,0.001,0.01,0.1 ,1,10]
+    num_Pe = 80
+    num_k = 80
     Pe_array = np.linspace(2000, 25000, num_Pe)
     k_array = np.linspace(0.5, 3.5, num_k)
-    Pe_grid, k_grid = np.meshgrid(Pe_array, k_array)
     
-    total_points = num_Pe * num_k
+    args_list = [(S, Pe_array, k_array, USER_Ra, USER_Lambda, USER_d0, N_res) for S in S_values]
     
-    # ---------------------------------------------------------
-    # GENERATE A COLOR GRADIENT FOR THE LINES
-    # ---------------------------------------------------------
-    # 'plasma' is excellent for sequential lines (goes from purple to yellow)
-    color_map = plt.cm.plasma(np.linspace(0, 0.9, len(S_values)))
+    n_procs = min(len(S_values), mp.cpu_count())
+    print(f"Using {n_procs} processes.", flush=True)
     
-    # Dictionary to hold the data grids so we can plot them all at the end
-    results_dict = {}
-
-    print(f"--- Starting Multi-Curve Neutral Stability Sweep ---")
-    print(f"Total iterations planned: {len(S_values)} curves x {total_points} grid points = {len(S_values)*total_points} total points.")
+    with mp.Pool(processes=n_procs) as pool:
+        results = []
+        for result in pool.imap_unordered(compute_for_S, args_list):
+            results.append(result)
+            print(f"Received result for S={result[0]}", flush=True)
+            
+    # ═══ FIX 1: Sort results by S to guarantee consistent color mapping ═══
+    results.sort(key=lambda x: x[0])
     
-    global_start_time = time.time()
-    
-    # ---------------------------------------------------------
-    # MASTER LOOP OVER STEFAN NUMBERS
-    # ---------------------------------------------------------
-    for idx, S in enumerate(S_values):
-        print(f"\n[{idx+1}/{len(S_values)}] Sweeping grid for Stefan Number (S) = {S} ...")
-        growth_grid = np.zeros_like(Pe_grid)
+    print("Consolidating all results into a master file...", flush=True)
+    master_dict = {}
+    for S, Pe_grid, k_grid, growth_grid in results:
+        master_dict[f'Pe_grid_S_{S}'] = Pe_grid
+        master_dict[f'k_grid_S_{S}'] = k_grid
+        master_dict[f'growth_grid_S_{S}'] = growth_grid
         
-        point_count = 0
-        loop_start = time.time()
-        
-        for i in range(num_k):
-            for j in range(num_Pe):
-                
-                # Notice N1 and N2 are slightly lowered (40, 56) to drastically speed up execution 
-                # while maintaining enough spectral density to filter spurious modes.
-                growth_grid[i, j] = get_coupled_max_growth(
-                    Pe=Pe_grid[i, j], 
-                    k_val=k_grid[i, j], 
-                    Ra=USER_Ra, 
-                    S=S, 
-                    Lambda=USER_Lambda, 
-                    d0=USER_d0, 
-                    N1=40, N2=56, tol=1e-3
-                )
-                
-                point_count += 1
-                if point_count % 100 == 0:
-                    elapsed = time.time() - loop_start
-                    print(f"  -> {point_count}/{total_points} points completed ({elapsed:.1f} sec)")
-
-        # Store the completed grid in our dictionary
-        results_dict[S] = growth_grid
-        
-        # Save a backup file just in case the script crashes during the next loop!
-        np.savez(f'backup_S_{S}.npz', Pe_grid=Pe_grid, k_grid=k_grid, growth_grid=growth_grid)
-        print(f"Finished S = {S}. Backup saved to 'backup_S_{S}.npz'.")
-
-    total_time = time.time() - global_start_time
-    print(f"\nAll sweeps complete in {total_time/60:.1f} minutes. Generating final plot...")
-
-    # ---------------------------------------------------------
-    # MASTER VISUALIZATION
-    # ---------------------------------------------------------
-    fig, ax = plt.subplots(figsize=(10, 7))
+    np.savez_compressed('master_neutral_stability_data.npz', **master_dict)
+    print("Master data saved successfully as 'master_neutral_stability_data.npz'", flush=True)
     
-    legend_elements = []
+    # Plotting Setup
+    plt.figure(figsize=(11, 8))
+    cmap = plt.cm.viridis
+    colors = cmap(np.linspace(0, 1, len(S_values)))
     
-    # Plot each neutral curve (0.0 contour level)
-    for idx, S in enumerate(S_values):
-        color = color_map[idx]
-        grid_data = results_dict[S]
+    legend_handles = []
+    
+    for idx, (S, Pe_grid, k_grid, growth_grid) in enumerate(results):
+        # Generate the contour line
+        plt.contour(Pe_grid, k_grid, growth_grid, levels=[0.0],
+                    colors=[colors[idx]], linewidths=2.5)
         
-        # Draw the curve
-        cs = ax.contour(Pe_grid, k_grid, grid_data, levels=[0.0], colors=[color], linewidths=2.0)
-        
-        # Create a custom legend proxy artist for this specific line
-        legend_elements.append(Line2D([0], [0], color=color, lw=2.5, label=f'$S = {S}$'))
+        # ═══ FIX 2: Use independent line proxies for a bulletproof legend ═══
+        proxy_line, = plt.plot([], [], color=colors[idx], linewidth=2.5, label=f'S = {S}')
+        legend_handles.append(proxy_line)
 
     # Formatting
-    ax.set_title(f'Neutral Stability Curves for Varying Stefan Numbers\nRa={USER_Ra}, $\Lambda$={USER_Lambda}, $Pr=1.0$', 
-              fontsize=14, pad=15)
-    ax.set_xlabel('Peclet Number ($Pe$)', fontsize=13)
-    ax.set_ylabel('Wavenumber ($k$)', fontsize=13)
+    plt.title(f'Neutral stability curves for different Stefan numbers\nRa={USER_Ra}, Pr=1.0, Λ={USER_Lambda}, d0={USER_d0}',
+              fontsize=15, pad=15)
+    plt.xlabel('Peclet Number ($Pe$)', fontsize=13)
+    plt.ylabel('Wavenumber ($k$)', fontsize=13)
+    plt.xlim(Pe_array[0], Pe_array[-1])
+    plt.ylim(k_array[0], k_array[-1])
+    plt.grid(True, linestyle=':', alpha=0.7)
     
-    ax.set_xlim(np.min(Pe_array), np.max(Pe_array))
-    ax.set_ylim(np.min(k_array), np.max(k_array))
+    # Use the reliable proxy handle list explicitly
+    plt.legend(handles=legend_handles, loc='best', fontsize=11)
     
-    ax.grid(True, linestyle=':', alpha=0.6)
-    
-    # Attach the custom legend
-    ax.legend(handles=legend_elements, loc='best', fontsize=11, frameon=True, edgecolor='gray', title="Stefan Number")
+    plt.text(Pe_array[-1]*0.8, np.mean(k_array)*1.2, "UNSTABLE", 
+             color='darkred', fontsize=14, fontweight='bold', ha='center')
+    plt.text(Pe_array[0]*1.2, np.mean(k_array)*1.2, "STABLE", 
+             color='steelblue', fontsize=14, fontweight='bold', ha='center')
     
     plt.tight_layout()
-    plt.savefig('multi_stefan_neutral_curves.png', dpi=300)
     plt.show()
-    #.
