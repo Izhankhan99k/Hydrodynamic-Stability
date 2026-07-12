@@ -4,7 +4,7 @@ import matplotlib.patches as mpatches
 
 # --- 1. LOAD BACKGROUND MAP DATA ---
 # This loads the grid you already calculated
-data = np.load("neutral_stability_map.npz")
+data = np.load("a0g0.npz")
 k_grid = data['k_grid']
 Re_grid = data['Re_grid']
 max_ci_grid = data['max_ci_grid']
@@ -13,11 +13,7 @@ a = data['a']
 G = data['G']
 Bo = data['Bo']
 
-# --- 2. LOAD YOUR CSV DATA ---
-# np.loadtxt is perfect here since your CSV doesn't have text headers
-true_data = np.loadtxt("true_data.csv", delimiter=",")
-k_true = true_data[:, 0]
-Re_true = true_data[:, 1]
+
 
 # --- 3. GENERATE THE VISUALIZATION ---
 fig, ax = plt.subplots(figsize=(7, 5.5))
@@ -26,13 +22,7 @@ fig, ax = plt.subplots(figsize=(7, 5.5))
 masked_ci = np.ma.masked_where(max_ci_grid <= 0, max_ci_grid)
 
 # Plot the background contour (Yellow to Green transition)
-contour_fill = ax.contourf(k_grid, Re_grid, masked_ci, levels=15, cmap=plt.cm.YlOrBr, alpha=0.9)
-
-
-
-# --- 4. PLOT YOUR TRUE CSV DATA ON TOP ---
-# Using solid black dots so they stand out clearly against the green/yellow background
-ax.scatter(k_true, Re_true, color='black', marker='o', s=25, zorder=5, label='True Data (CSV)')
+contour_fill = ax.contourf(k_grid, Re_grid, masked_ci, levels=200, cmap=plt.cm.YlGnBu, alpha=0.9)
 
 
 # --- 5. AXIS SCALING AND FORMATTING ---
@@ -71,5 +61,5 @@ handles.insert(0, this_work_patch)
 ax.legend(handles=handles, loc='lower left', fontsize=11, frameon=True, edgecolor='gray')
 
 plt.tight_layout()
-plt.savefig('nscurve_with_data.png', dpi=300)
+plt.savefig('a0g0.png', dpi=300)
 plt.show()

@@ -112,7 +112,7 @@ for i in range(N_Re):
             print(f"Scan progress: {counter}/{total_points} cells complete.")
 
 # --- SAVE DATA ---
-np.savez("neutral_stability_map.npz", 
+np.savez("a0g0.npz", 
          k_grid=k_grid, 
          Re_grid=Re_grid, 
          max_ci_grid=max_ci_grid,

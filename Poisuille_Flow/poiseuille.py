@@ -24,15 +24,16 @@ def plot_c_spectrum_mapped():
     # Base State: Mapped to [0, 1], but derivatives scaled to half-width
     U = dist.Field(name='U', bases=basis)
     U['g'] = 4*z*(1-z)         # Max velocity is 1.0 at z=0.5
-    
-    Uyy['g'] = -2 * np.ones_like(z)      
+    Uyy=dist.Field(name='U',bases=basis)
+    Uyy['g']=-2*np.ones_like(z)
+       
 
     # Fields & Tau Polynomials (Representing y-derivatives)
     w = dist.Field(name='w', bases=basis)
     wy = dist.Field(name='wy', bases=basis)
     wyy = dist.Field(name='wyy', bases=basis)
     wyyy = dist.Field(name='wyyy', bases=basis)
-    Uyy = dist.Field(name='Uyy', bases=basis)
+ 
 
     sigma = dist.Field(name='sigma')
 
@@ -40,8 +41,7 @@ def plot_c_spectrum_mapped():
     tau_2 = dist.Field(name='tau_2')
     tau_3 = dist.Field(name='tau_3')
     tau_4 = dist.Field(name='tau_4')
-    tau_5 = dist.Field(name='tau_5')
-    tau_6 = dist.Field(name='tau_6')
+   
 
 
     # THE CHAIN RULE OPERATORS
@@ -49,14 +49,13 @@ def plot_c_spectrum_mapped():
     dy = lambda A: 0.5 * dz(A)   # Scales back to the physical [-1, 1] length
     lift = lambda A: d3.Lift(A, basis.derivative_basis(1), -1)
 
-    problem = d3.EVP([w, wy, wyy, wyyy, tau_1, tau_2, tau_3, tau_4], eigenvalue=sigma, namespace=locals())
+    problem = d3.EVP([w, wy, wyy, wyyy ,tau_1, tau_2, tau_3, tau_4], eigenvalue=sigma, namespace=locals())
 
     # Build equations using 'dy' and 'wyy'
     problem.add_equation("dy(w) - wy + lift(tau_1) = 0")
     problem.add_equation("dy(wy) - wyy + lift(tau_2) = 0")
     problem.add_equation("dy(wyy) - wyyy + lift(tau_3) = 0")
-    problem.add_equation("dy(U)-Uy+lift(tau_5)=0")
-    problem.add_equation("dy(Uy)-Uyy+lift(tau_6)=0")
+   
     problem.add_equation(
         "sigma*(wyy - k_val**2 * w) "
         "+ j*k_val*U*(wyy - k_val**2 * w) - j*k_val*Uyy*w "

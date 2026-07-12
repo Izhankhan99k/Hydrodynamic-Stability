@@ -1,31 +1,32 @@
 import numpy as np
 import dedalus.public as d3
 import logging
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from itertools import product
+import os
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Fixed parameters
-a = -1         
-G = 0
-Bo = 1000.0   
+a = 0.0
+G = 0.0
+Bo = 1000.0
 
-# --- HIGHER RESOLUTION MESH GENERATION ---
+# Resolution grid
 N_k = 60
 N_Re = 60
-
-k_space = np.logspace(-2, 2, N_k)     # k from 10^-2 to 10^2
-Re_space = np.logspace(-1, 5, N_Re)   # Re from 10^-1 to 10^5
-
-k_grid, Re_grid = np.meshgrid(k_space, Re_space)
-max_ci_grid = np.zeros_like(Re_grid)
+k_space = np.logspace(-2, 2, N_k)
+Re_space = np.logspace(-1, 5, N_Re)
 
 def solve_evp(N_res, Re_val, k_val):
+    """Solve the EVP for a single (Re, k) pair at given resolution."""
     coord = d3.Coordinate('z')
     dist = d3.Distributor(coord, dtype=np.complex128)
     basis = d3.Chebyshev(coord, size=N_res, bounds=(-1, 0))
     z = dist.local_grid(basis)
     
+    # Base flow
     U = dist.Field(name='U', bases=basis)
     U['g'] = a * z**2 + (a + 1) * z + 1
     Uz = dist.Field(name='Uz', bases=basis)
@@ -33,6 +34,7 @@ def solve_evp(N_res, Re_val, k_val):
     Uzz = dist.Field(name='Uzz', bases=basis)
     Uzz['g'] = 2 * a * np.ones_like(z)
     
+    # Fields
     phi = dist.Field(name='phi', bases=basis)
     phiz = dist.Field(name='phiz', bases=basis)
     Lphi = dist.Field(name='Lphi', bases=basis)
@@ -59,7 +61,8 @@ def solve_evp(N_res, Re_val, k_val):
         dz=dz, lift=lift, U=U, Uz=Uz, Uzz=Uzz
     )
     
-    problem = d3.EVP([phi, phiz, Lphi, Lphiz, eta, tau1, tau2, tau3, tau4], eigenvalue=c, namespace=ns)
+    problem = d3.EVP([phi, phiz, Lphi, Lphiz, eta, tau1, tau2, tau3, tau4],
+                     eigenvalue=c, namespace=ns)
     problem.add_equation("phiz - dz(phi) + lift(tau1) = 0")
     problem.add_equation("Lphi - dz(phiz) + (k**2)*phi + lift(tau2) = 0")
     problem.add_equation("Lphiz - dz(Lphi) + lift(tau3) = 0")
@@ -75,47 +78,71 @@ def solve_evp(N_res, Re_val, k_val):
     solver.solve_dense(solver.subproblems[0])
     return np.array(solver.eigenvalues)
 
-def convergence_filter(ev_lo, ev_hi, tol=0.0001):
+def convergence_filter(ev_lo, ev_hi, tol=0.01):
     good = []
     for i, e in enumerate(ev_lo):
-        if not np.isfinite(e): continue
+        if not np.isfinite(e):
+            continue
         denom = max(abs(e), 1.0)
         if np.min(np.abs(ev_hi - e)) / denom < tol:
             good.append(i)
     phys_mask = np.isfinite(ev_lo)
-    if len(good) == 0: return ev_lo[phys_mask]
+    if len(good) == 0:
+        return ev_lo[phys_mask]
     converged = np.array(good)
     return ev_lo[converged[phys_mask[converged]]]
 
-# --- GRID SWEEP LOOP ---
-total_points = N_Re * N_k
-counter = 0
+def compute_point(args):
+    """Worker function for a single (i, j) grid point."""
+    i, j, Re_val, k_val = args
+    # Use two resolutions
+    ev1 = solve_evp(180, Re_val, k_val)
+    ev2 = solve_evp(200, Re_val, k_val)
+    evals = convergence_filter(ev1, ev2, tol=0.01)
+    if len(evals) > 0:
+        max_ci = np.max(evals.imag)
+    else:
+        max_ci = -999.0
+    return i, j, max_ci
 
-print("Computing eigenvalue space. This may take a minute due to grid density...")
-for i in range(N_Re):
-    for j in range(N_k):
-        counter += 1
-        cur_k = k_grid[i, j]
-        cur_Re = Re_grid[i, j]
+def main():
+    # Prepare all parameter pairs with indices
+    tasks = []
+    for i, Re_val in enumerate(Re_space):
+        for j, k_val in enumerate(k_space):
+            tasks.append((i, j, Re_val, k_val))
+    
+    total = len(tasks)
+    print(f"Computing {total} points using multiprocessing...")
+    
+    # Use number of processes = CPU cores (leave one free)
+    n_workers = os.cpu_count() - 1 if os.cpu_count() > 1 else 1
+    print(f"Using {n_workers} workers.")
+    
+    # Initialize result array
+    max_ci_grid = np.zeros((N_Re, N_k))
+    
+    # Submit tasks and collect results
+    with ProcessPoolExecutor(max_workers=n_workers) as executor:
+        # Submit all tasks
+        futures = {executor.submit(compute_point, task): task for task in tasks}
         
-        # Balanced resolution configuration for precision boundary tracking
-        ev1 = solve_evp(180, cur_Re, cur_k)
-        ev2 = solve_evp(200, cur_Re, cur_k)
-        evals = convergence_filter(ev1, ev2, tol=0.01)
-        
-        if len(evals) > 0:
-            max_ci_grid[i, j] = np.max(evals.imag)
-        else:
-            max_ci_grid[i, j] = -999.0
-            
-        if counter % 300 == 0:
-            print(f"Scan progress: {counter}/{total_points} cells complete.")
+        # Process completed futures as they arrive (for progress)
+        completed = 0
+        for future in as_completed(futures):
+            i, j, val = future.result()
+            max_ci_grid[i, j] = val
+            completed += 1
+            if completed % 300 == 0 or completed == total:
+                print(f"Progress: {completed}/{total} points done.")
+    
+    # Save data
+    np.savez("a0g0.npz",
+             k_grid=k_space,          # Note: we store 1D arrays, not meshgrid
+             Re_grid=Re_space,
+             max_ci_grid=max_ci_grid,
+             a=a, G=G, Bo=Bo)
+    print("Data saved successfully to 'a0g0.npz'.")
 
-# --- SAVE DATA ---
-np.savez("neutral_stability_map.npz", 
-         k_grid=k_grid, 
-         Re_grid=Re_grid, 
-         max_ci_grid=max_ci_grid,
-         a=a, G=G, Bo=Bo)
-         
-print("Data saved successfully to 'a-1g0.npz'.")
+if __name__ == "__main__":
+    main()

@@ -13,14 +13,17 @@ a = data['a']
 G = data['G']
 Bo = data['Bo']
 
+
+
 # --- 3. GENERATE THE VISUALIZATION ---
 fig, ax = plt.subplots(figsize=(7, 5.5))
 
 # Mask stable configurations to leave them completely white
 masked_ci = np.ma.masked_where(max_ci_grid <= 0, max_ci_grid)
 
-# Plot the background contour (Viridis colormap applied here)
-contour_fill = ax.contourf(k_grid, Re_grid, masked_ci, levels=15, cmap='viridis', alpha=0.9)
+# Plot the background contour (Yellow to Green transition)
+contour_fill = ax.contourf(k_grid, Re_grid, masked_ci, levels=200, cmap=plt.cm.YlGnBu, alpha=0.9)
+
 
 # --- 5. AXIS SCALING AND FORMATTING ---
 ax.set_xscale('log')
@@ -50,9 +53,7 @@ plt.grid(False)
 
 # --- 6. CUSTOM LEGEND ---
 # Combine the contour patch and the scatter points into one clean legend
-# Note: I left this red (#C04343), but you can change it to a Viridis hex code (e.g., #FDE725 for yellow) if you want it to match perfectly.
 this_work_patch = mpatches.Patch(color="#C04343", label="Unstable Region")
-
 # We grab the scatter plot handle automatically by relying on the label we assigned earlier
 handles, labels = ax.get_legend_handles_labels()
 handles.insert(0, this_work_patch) 
@@ -60,5 +61,5 @@ handles.insert(0, this_work_patch)
 ax.legend(handles=handles, loc='lower left', fontsize=11, frameon=True, edgecolor='gray')
 
 plt.tight_layout()
-plt.savefig('nscurve_with_data.png', dpi=300)
+plt.savefig('a-1g0.png', dpi=300)
 plt.show()
