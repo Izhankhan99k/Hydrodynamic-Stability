@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════
 Ra   = 0                
 Pr   = 1.0              
-S    = 100000000     
+S    = 0.01   
 Lam  = 0.5              
 k    = 1.02056          # Classical critical half-width wavenumber
 m    = 0.0              
@@ -194,7 +194,7 @@ def plot_eigenvalues(spectra_dict, title_params=""):
 
 if __name__ == "__main__":
     # Sweeping right around the classical critical value of 5772
-    Pe_list = [2000,4000,5000,5772,6000,7000,8000]
+    Pe_list = [8000]
     
     spectra = {}
     for Pe in Pe_list:
