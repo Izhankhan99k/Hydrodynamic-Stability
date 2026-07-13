@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════
 Ra   = 0                
 Pr   = 1.0              
-S    = 0.0001
+S    = 1000
 Lam  = 0.5              
 k    = 1.02056          # Classical critical half-width wavenumber
 m    = 0.0              
@@ -218,7 +218,7 @@ if __name__ == "__main__":
     target_Pe = 8000
     
     # Compute spectrum exclusively at Pe = 8000
-    converged_evals = get_converged_spectra(target_Pe, N1=250, N2=300)
+    converged_evals = get_converged_spectra(target_Pe, N1=150, N2=140)
     
     # Plot the full raw output (no limits placed on the vertical Y-branch lines)
     plot_single_pe_spectrum(target_Pe, converged_evals)
