@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════
 Ra   = 0                
 Pr   = 1.0              
-S    = 1000
+S    = 100
 Lam  = 0.5              
 k    = 1.02056          # Classical critical half-width wavenumber
 m    = 0.0              
