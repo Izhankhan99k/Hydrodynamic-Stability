@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════
 Ra   = 0                
 Pr   = 1.0              
-S    = 100000000     
+S    =   0.001
 Lam  = 0.5              
 k    = 1.02056          # Classical critical half-width wavenumber
 m    = 0.0              
@@ -205,7 +205,7 @@ def plot_eigenvalues(spectra_dict, title_params=""):
     ax.set_title(f'Peclet Spectrum Evolution ($Pe = {min(Pe_values)} \\rightarrow {max(Pe_values)}$) | {title_params}', 
                  fontsize=14, fontweight='bold', pad=15)
     
-    ax.set_xlim(-0.2, 1.2)
+    ax.set_xlim(0.2, 1.2)
     ax.set_ylim(-2.0, 0.5) 
     ax.grid(True, linestyle=':', alpha=0.6)
     
@@ -231,7 +231,7 @@ def plot_eigenvalues(spectra_dict, title_params=""):
 # ═══════════════════════════════════════════════════════════
 if __name__ == "__main__":
     # Sweeping right around the classical critical value of 5772
-    Pe_list = [2000,2400,2600,3000,3400,3600,3800, 4000,4300,4500,4800 ,5000,5400 ,5772, 6000,6400,6600,6800, 7000,7400,7600,7800, 8000]
+    Pe_list = [ 8000]
     
     spectra = {}
     for Pe in Pe_list:

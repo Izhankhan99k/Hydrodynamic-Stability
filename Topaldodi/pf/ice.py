@@ -11,9 +11,9 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════
 Ra   = 0                
 Pr   = 1.0              
-S    = 100000000     
+S    = 0.0001 
 Lam  = 0.5              
-k    = 1.02056          # Classical critical half-width wavenumber
+k    = 1         # Classical critical half-width wavenumber
 m    = 0.0              
 
 gamma2 = k**2 + m**2
@@ -133,7 +133,7 @@ def solve_evp(N, Pe):
     solver.solve_dense(solver.subproblems[0])
     return np.array(solver.eigenvalues)
 
-def get_converged_spectra(Pe, N1=140, N2=150, tol=1e-5):
+def get_converged_spectra(Pe, N1=200, N2=250, tol=1e-5):
     logger.info(f"--- Sweeping Pe = {Pe} ---")
     ev1 = solve_evp(N1, Pe)
     ev2 = solve_evp(N2, Pe)
@@ -194,7 +194,7 @@ def plot_eigenvalues(spectra_dict, title_params=""):
 
 if __name__ == "__main__":
     # Sweeping right around the classical critical value of 5772
-    Pe_list = [2000,4000,5000,5772,6000,7000,8000]
+    Pe_list = [8000]
     
     spectra = {}
     for Pe in Pe_list:

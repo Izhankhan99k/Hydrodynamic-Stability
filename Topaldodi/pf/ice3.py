@@ -1,241 +1,224 @@
-
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import matplotlib.lines as mlines
+import matplotlib.patches as mpatches
 import dedalus.public as d3
 import logging
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ═══════════════════════════════════════════════════════════
-#  Physical parameters
+#  Fixed Physical Parameters (Half-Width Scaling)
 # ═══════════════════════════════════════════════════════════
-Ra   = 0   # Rayleigh number
-Pe   = 40000  # Peclet number
-Pr   = 1.0          # Prandtl number  (Re = Pe/Pr)
-S    = 0.000001         # Stefan number
-Lam  = 0.5         # Λ = (Tm − Tc) / ΔT
-k    = 1         # streamwise wavenumber
-m    = 0.0          # spanwise wavenumber
+Ra   = 0                
+Pr   = 1.0              
+S    = 0.0001
+Lam  = 0.5              
+k    = 1.02056          # Classical critical half-width wavenumber
+m    = 0.0              
+
 gamma2 = k**2 + m**2
-d0     = Lam         # base-state solid thickness (from flux balance: d₀ = Λ)
+d0     = Lam        
+
 # ═══════════════════════════════════════════════════════════
-#  EVP solver
+#  EVP Solver Function
 # ═══════════════════════════════════════════════════════════
-def solve_evp(N):
-    """
-    Build and solve the coupled generalised eigenvalue problem
-    at Chebyshev resolution N.  Returns the array of eigenvalues σ.
-    """
-    # ── coordinate & basis ────────────────────────────────
+def solve_evp(N, Pe):
     coord = d3.Coordinate('z')
     dist  = d3.Distributor(coord, dtype=np.complex128)
+    
     basis = d3.Chebyshev(coord, size=N, bounds=(0, 1))
     z     = dist.local_grid(basis)
-    # ── operators ─────────────────────────────────────────
+
     dz = lambda A: d3.Differentiate(A, coord)
+    dy = lambda A: 0.5 * dz(A)  
+
     try:
         lift_basis = basis.derivative_basis(1)
     except AttributeError:
         lift_basis = basis
     lift = lambda A: d3.Lift(A, lift_basis, -1)
-    # ── fields on Chebyshev basis ─────────────────────────
-    w   = dist.Field(name='w',   bases=basis)   # vertical velocity
-    wz  = dist.Field(name='wz',  bases=basis)   # Dw
-    Lw  = dist.Field(name='Lw',  bases=basis)   # (D²−γ²)w
-    Lwz = dist.Field(name='Lwz', bases=basis)   # D(Lw)
-    tl  = dist.Field(name='tl',  bases=basis)   # liquid temperature pert.
-    tlz = dist.Field(name='tlz', bases=basis)   # D(θ_l)
-    ts  = dist.Field(name='ts',  bases=basis)   # solid temperature pert.
-    tsz = dist.Field(name='tsz', bases=basis)   # D_ζ(θ_s)
-    # ── scalar fields ─────────────────────────────────────
-    h     = dist.Field(name='h')                # interface deformation
-    sigma = dist.Field(name='sigma')            # eigenvalue
-    # ── tau fields (8 BCs → 8 taus) ──────────────────────
-    tw1  = dist.Field(name='tw1')
-    tw2  = dist.Field(name='tw2')
-    tw3  = dist.Field(name='tw3')
-    tw4  = dist.Field(name='tw4')
-    ttl1 = dist.Field(name='ttl1')
-    ttl2 = dist.Field(name='ttl2')
-    tts1 = dist.Field(name='tts1')
-    tts2 = dist.Field(name='tts2')
-    # ── Poiseuille base-state velocity ────────────────────
-    #    U₀(z) = 4z(1−z),  U₀' = 4−8z,  U₀'' = −8
+
+    w   = dist.Field(name='w',   bases=basis)
+    wy  = dist.Field(name='wy',  bases=basis)
+    Lw  = dist.Field(name='Lw',  bases=basis)
+    Lwy = dist.Field(name='Lwy', bases=basis)
+    tl  = dist.Field(name='tl',  bases=basis)
+    tly = dist.Field(name='tly', bases=basis)
+    ts  = dist.Field(name='ts',  bases=basis)
+    tsy = dist.Field(name='tsy', bases=basis)
+
+    h = dist.Field(name='h')
+    c = dist.Field(name='c')
+
+    tw1, tw2, tw3, tw4 = [dist.Field(name=f'tw{i}') for i in range(1, 5)]
+    ttl1, ttl2 = [dist.Field(name=f'ttl{i}') for i in range(1, 3)]
+    tts1, tts2 = [dist.Field(name=f'tts{i}') for i in range(1, 3)]
+
     U0 = dist.Field(name='U0', bases=basis)
-    U0['g'] = 4.0 * z * (1.0 - z)
-    U0z = dist.Field(name='U0z', bases=basis)
-    U0z['g'] = 4.0 - 8.0 * z
-    U0zz = dist.Field(name='U0zz', bases=basis)
-    U0zz['g'] = -8.0 * np.ones_like(z)
-    # ── namespace for equation parser ─────────────────────
+    U0['g'] = 4.0 * z * (1.0 - z)          
+    
+    U0y = dist.Field(name='U0y', bases=basis)
+    U0y['g'] = 2.0 - 4.0 * z               
+    
+    U0yy = dist.Field(name='U0yy', bases=basis)
+    U0yy['g'] = -2.0 * np.ones_like(z)     
+
     ns = dict(
         Ra=Ra, Pe=Pe, Pr=Pr, S=S, Lam=Lam,
         k=k, gamma2=gamma2, d0=d0,
-        w=w, wz=wz, Lw=Lw, Lwz=Lwz,
-        tl=tl, tlz=tlz, ts=ts, tsz=tsz,
-        h=h, sigma=sigma,
-        U0=U0, U0z=U0z, U0zz=U0zz,
-        dz=dz, lift=lift,
+        w=w, wy=wy, Lw=Lw, Lwy=Lwy,
+        tl=tl, tly=tly, ts=ts, tsy=tsy,
+        h=h, c=c, U0=U0, U0y=U0y, U0yy=U0yy,
+        dy=dy, lift=lift,
         tw1=tw1, tw2=tw2, tw3=tw3, tw4=tw4,
         ttl1=ttl1, ttl2=ttl2, tts1=tts1, tts2=tts2,
     )
-    variables = [w, wz, Lw, Lwz, tl, tlz, ts, tsz, h,
+
+    variables = [w, wy, Lw, Lwy, tl, tly, ts, tsy, h,
                  tw1, tw2, tw3, tw4, ttl1, ttl2, tts1, tts2]
-    problem = d3.EVP(variables, eigenvalue=sigma, namespace=ns)
-    # ═══════════════════════════════════════════════════════
-    #  PDEs (first-order reduction with tau method)
-    # ═══════════════════════════════════════════════════════
-    # ── Orr-Sommerfeld (4th order in w) ───────────────────
-    #
-    #  Pr(D²−γ²)²w − ikPe[U₀(D²−γ²)w − U₀''w]
-    #       − γ² RaPr/Pe θ_l  +  iσ(D²−γ²)w  =  0
-    #
-    #  First-order auxiliaries:
-    #    wz  = Dw
-    #    Lw  = Dwz − γ²w   [= (D²−γ²)w]
-    #    Lwz = D(Lw)
-    problem.add_equation("wz  - dz(w)                  + lift(tw1) = 0")
-    problem.add_equation("dz(wz) - gamma2*w - Lw       + lift(tw2) = 0")
-    problem.add_equation("Lwz - dz(Lw)                 + lift(tw3) = 0")
+
+    problem = d3.EVP(variables, eigenvalue=c, namespace=ns)
+
+    # OS Equations 
+    problem.add_equation("wy  - dy(w)              + lift(tw1) = 0")
+    problem.add_equation("dy(wy) - gamma2*w - Lw   + lift(tw2) = 0")
+    problem.add_equation("Lwy - dy(Lw)             + lift(tw3) = 0")
     problem.add_equation(
-        "Pr*(dz(Lwz) - gamma2*Lw)"            # Pr(D²−γ²)²w
-        " - 1j*k*Pe*(U0*Lw - U0zz*w)"         # −ikPe(U₀·Lw − U₀''·w)
-        " - gamma2*Ra*Pr/Pe*tl"                # −γ²·RaPr/Pe·θ_l
-        " + 1j*sigma*Lw"                       # +iσ·Lw  (eigenvalue)
-        " + lift(tw4) = 0"
+        "Pr*(dy(Lwy) - gamma2*Lw)"
+        " - 1j*k*Pe*(U0*Lw - U0yy*w)"
+        " - gamma2*Ra*Pr/Pe*tl"
+        " + 1j*k*Pe*c*Lw + lift(tw4) = 0"
     )
-    # ── Liquid heat (2nd order) ───────────────────────────
-    #
-    #  (D²−γ²)θ_l − ikPe·U₀·θ_l + Pe·w + iσ·θ_l = 0
-    #
-    #  The +Pe·w comes from advecting the base gradient Dθ_l⁰ = −1:
-    #    −Pe·w·(−1) = +Pe·w
-    problem.add_equation("tlz - dz(tl) + lift(ttl1) = 0")
+
+    # Liquid Heat Equation
+    problem.add_equation("tly - dy(tl) + lift(ttl1) = 0")
     problem.add_equation(
-        "dz(tlz) - gamma2*tl"                  # (D²−γ²)θ_l
-        " - 1j*k*Pe*U0*tl"                     # −ikPe·U₀·θ_l
-        " + Pe*w"                               # +Pe·w
-        " + 1j*sigma*tl"                        # +iσ·θ_l  (eigenvalue)
-        " + lift(ttl2) = 0"
+        "dy(tly) - gamma2*tl"
+        " - 1j*k*Pe*U0*tl"
+        " + Pe*w"
+        " + 1j*k*Pe*c*tl + lift(ttl2) = 0"
     )
-    # ── Solid heat (2nd order, mapped domain) ─────────────
-    #
-    #  (1/d₀²)D_ζ²θ_s − γ²θ_s + iσ·θ_s = 0
-    problem.add_equation("tsz - dz(ts) + lift(tts1) = 0")
+
+    # Solid Heat Equation
+    problem.add_equation("tsy - dy(ts) + lift(tts1) = 0")
     problem.add_equation(
-        "1/d0**2*dz(tsz)"                      # (1/d₀²)D²θ_s
-        " - gamma2*ts"                          # −γ²θ_s
-        " + 1j*sigma*ts"                        # +iσ·θ_s  (eigenvalue)
-        " + lift(tts2) = 0"
+        "1/d0**2*dy(tsy)"
+        " - gamma2*ts"
+        " + 1j*k*Pe*c*ts + lift(tts2) = 0"
     )
-    # ═══════════════════════════════════════════════════════
-    #  Boundary Conditions (8 BCs absorb 8 tau fields)
-    # ═══════════════════════════════════════════════════════
-    # z = 0 : bottom wall (liquid) + far cold wall (solid, ζ=0)
-    problem.add_equation("w(z=0)  = 0")            # no penetration
-    problem.add_equation("wz(z=0) = 0")            # no slip
-    problem.add_equation("tl(z=0) = 0")            # fixed T_h perturbation
-    problem.add_equation("ts(z=0) = 0")            # fixed T_c perturbation
-    # z = 1 : melting interface (ζ=1 for both liquid and solid)
-    problem.add_equation("w(z=1)  = 0")            # kinematic (no penetration)
-    # No-slip at perturbed interface:
-    #   û(1) + ĥ·U₀'(1) = 0  →  Dŵ(1) − ik·U₀'(1)·ĥ = 0
-    problem.add_equation("wz(z=1) +1j*k*U0z(z=1)*h = 0")
-    # Melting temperature constraint:
-    #   θ_l⁰(1) + ĥ·Dθ_l⁰(1) + θ̂_l(1) = 0  →  θ̂_l(1) = ĥ
+
+    # Boundary Conditions
+    problem.add_equation("w(z=0)  = 0")        
+    problem.add_equation("wy(z=0) = 0")        
+    problem.add_equation("tl(z=0) = 0")        
+    problem.add_equation("ts(z=0) = 0")        
+
+    problem.add_equation("w(z=1) = 0")
+    problem.add_equation("wy(z=1) - 1j*k*U0y(z=1)*h = 0")  
     problem.add_equation("tl(z=1) - h = 0")
-    # Same for the solid side (with d₀ = Λ ⟹ coefficient = 1):
     problem.add_equation("ts(z=1) - h = 0")
-    # ═══════════════════════════════════════════════════════
-    #  Stefan Condition (9th equation for the scalar ĥ)
-    # ═══════════════════════════════════════════════════════
-    #
-    #  −iσ·Λ·S·ĥ = D_z θ̂_l(1) + (−1/d₀)D_ζ θ̂_s(1)
-    #
-    #  Since ∂/∂z_s = −(1/d₀)·∂/∂ζ:
-    #    ∂θ̂_s/∂z_s|_{interface} = −(1/d₀)·tsz(1)
-    #
-    #  Rearranged:
-    #    (1/d₀)·tsz(1) + tlz(1) + iσ·Λ·S·ĥ = 0
+
+    # Stefan Condition
     problem.add_equation(
-        "1/d0*tsz(z=1) + tlz(z=1) - 1j*sigma*Lam*S*h = 0"
+        "1/d0*tsy(z=1) + tly(z=1) + 1j*k*Pe*Lam*S*c*h = 0"
     )
-    # ── solve ─────────────────────────────────────────────
+
     solver = problem.build_solver()
     solver.solve_dense(solver.subproblems[0])
     return np.array(solver.eigenvalues)
+
 # ═══════════════════════════════════════════════════════════
-#  Solve at TWO resolutions for convergence filtering
+#  Filtering Converged Spectra
 # ═══════════════════════════════════════════════════════════
-N1, N2 = 140,150
-logger.info(f"Solving EVP at N = {N1} ...")
-ev1 = solve_evp(N1)
-logger.info(f"  -> {len(ev1)} raw eigenvalues")
-logger.info(f"Solving EVP at N = {N2} ...")
-ev2 = solve_evp(N2)
-logger.info(f"  -> {len(ev2)} raw eigenvalues")
-def convergence_filter(ev_lo, ev_hi, tol=0.01):
-    """Keep eigenvalues from ev_lo that have a partner in ev_hi
-    within relative tolerance tol."""
+def get_converged_spectra(Pe, N1=140, N2=150, tol=1e-5):
+    logger.info(f"--- Computing Pe = {Pe} ---")
+    ev1 = solve_evp(N1, Pe)
+    ev2 = solve_evp(N2, Pe)
+    
     good = []
-    for i, e in enumerate(ev_lo):
+    for i, e in enumerate(ev1):
         if not np.isfinite(e):
             continue
         denom = max(abs(e), 1.0)
-        if np.min(np.abs(ev_hi - e)) / denom < tol:
+        if np.min(np.abs(ev2 - e)) / denom < tol:
             good.append(i)
-    if len(good) == 0:
-        logger.warning("Convergence filter returned nothing -> using all finite")
-        return ev_lo[np.isfinite(ev_lo)]
-    return ev_lo[np.array(good)]
-evals = convergence_filter(ev1, ev2, tol=0.01)
-logger.info(f"Retained {len(evals)} / {len(ev1)} converged eigenvalues")
+            
+    if len(good) < 5:
+        logger.warning(f"Very few converged modes for Pe={Pe}. Loosening tolerance.")
+        good = []
+        for i, e in enumerate(ev1):
+            if not np.isfinite(e):
+                continue
+            denom = max(abs(e), 1.0)
+            if np.min(np.abs(ev2 - e)) / denom < 1e-3:
+                good.append(i)
+                
+    evals = ev1[np.array(good)]
+    logger.info(f"Retained {len(evals)} converged modes for Pe = {Pe}")
+    return evals
+
 # ═══════════════════════════════════════════════════════════
-#  Convert eigenvalue to physical phase speed
-#
-#  The paper uses diffusive time scale: σ = k·Pe·c̃
-#  Physical phase speed: c̃ = σ / (k·Pe)
-#  c̃_r ∈ [0, 1] for hydrodynamic modes (bounded by U₀)
+#  Plotting Function (Single Pe Layout)
 # ═══════════════════════════════════════════════════════════
-c_tilde = evals / (k * Pe)
-cr = c_tilde.real
-ci = c_tilde.imag
-logger.info(f"c̃ range: Re = [{cr.min():.4f}, {cr.max():.4f}], "
-            f"Im = [{ci.min():.4f}, {ci.max():.4f}]")
-idx = np.argmax(ci)
-logger.info(f"Most unstable mode:  c̃ = {cr[idx]:.6f} {ci[idx]:+.6f}i")
-logger.info(f"  (raw sigma = {evals[idx]:.4f})")
+def plot_single_pe_spectrum(Pe, evals):
+    fig, ax = plt.subplots(figsize=(10, 7))
+    
+    # Shade unstable region (ci > 0)
+    ax.axhspan(0, 0.5, facecolor='#ffe6e6', alpha=0.4)
+    
+    # Neutral stability line and center guide
+    ax.axhline(0, color='black', linewidth=1.2)
+    ax.axvline(0.5, color='gray', linestyle=':', alpha=0.5) 
+    
+    cr = evals.real
+    ci = evals.imag
+    
+    # Standard color since we are only showing a single Pe state
+    mode_color = '#440154' # Deep purple from viridis base
+    
+    # Plot all converged modes
+    ax.scatter(cr, ci, s=35, color=mode_color, edgecolors='dimgray', 
+               linewidths=0.6, alpha=0.8, zorder=3, label=f'Converged Modes (Pe={Pe})')
+    
+    # Highlight strictly unstable modes (ci > 0)
+    unstable_mask = ci > 0
+    if np.any(unstable_mask):
+        ax.scatter(cr[unstable_mask], ci[unstable_mask], s=180, marker='*', 
+                   facecolor='red', edgecolors='gold', linewidths=1.2, zorder=5)
+
+    # Formatting axes and limits 
+    ax.set_xlabel(r'Phase Speed ($c_r$)', fontsize=12)
+    ax.set_ylabel(r'Growth Rate ($c_i$)', fontsize=12)
+    
+    ax.set_title(f'Peclet Spectrum ($Pe = {Pe}$) | Ra={Ra}, Pr={Pr}, S={S:.1e}', 
+                 fontsize=14, fontweight='bold', pad=15)
+    
+    ax.set_xlim(0.2, 1.2)
+    ax.set_ylim(-2.0, 0.5) 
+    ax.grid(True, linestyle=':', alpha=0.6)
+    
+    # Create the Custom Legend
+    region_patch = mpatches.Patch(color='#ffe6e6', alpha=0.8, label='Unstable Region')
+    star_marker = mlines.Line2D([], [], color='white', marker='*', markerfacecolor='red', 
+                                markeredgecolor='gold', markersize=14, label=r'Unstable Modes ($c_i > 0$)')
+    ax.legend(handles=[ax.collections[0], region_patch, star_marker], loc='lower left', framealpha=0.9, fontsize=10)
+    
+    plt.tight_layout()
+    plt.savefig('eigenvalue_spectrum_single.png', dpi=300)
+    logger.info("Saved plot to eigenvalue_spectrum_single.png")
+    plt.show()
+
 # ═══════════════════════════════════════════════════════════
-#  Plot eigenvalue spectrum
+#  Main Execution Block (Single Execution Context)
 # ═══════════════════════════════════════════════════════════
-Re_eff = Pe / Pr
-fig, ax = plt.subplots(figsize=(11, 7))
-ax.scatter(cr, ci, s=50, marker='o',
-           facecolors='none', edgecolors='royalblue',
-           linewidths=1.0, zorder=3, label='Eigenmodes')
-ax.scatter(cr[idx], ci[idx], s=300, marker='*',
-           color='gold', edgecolors='k',
-           linewidths=0.8, zorder=5, label='Most Unstable Mode')
-ax.annotate(f"({cr[idx]:.4f}, {ci[idx]:.4f})",
-            xy=(cr[idx], ci[idx]), xycoords='data',
-            xytext=(15, 15), textcoords='offset points',
-            fontsize=11, fontweight='bold', color='darkred',
-            bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8),
-            arrowprops=dict(arrowstyle="->", connectionstyle="arc3", color='gray'))
-ax.axhline(0, color='gray', ls='--', lw=1, alpha=0.7)
-ax.set_xlim(-0.2, 1.5)
-ax.set_ylim(-1.5, 0.2)
-ax.set_xlabel(r'Phase Speed  $\tilde{c}_r = \sigma_r / (k \cdot Pe)$', fontsize=14)
-ax.set_ylabel(r'Growth Rate  $\tilde{c}_i = \sigma_i / (k \cdot Pe)$', fontsize=14)
-ax.set_title(
-    f'Poiseuille + Melting Phase-Boundary Spectrum\n'
-    f'Ra={Ra:.0f},  Pe={Pe:.0f},  Re={Re_eff:.0f},  '
-    f'S={S},  Λ={Lam},  k={k}',
-    fontsize=13)
-ax.legend(fontsize=11, loc='lower right')
-ax.grid(True, ls=':', alpha=0.5)
-ax.tick_params(labelsize=12)
-plt.tight_layout()
-plt.savefig('melting_poiseuille_spectrum.png', dpi=150)
-plt.show()
-logger.info("Plot saved -> melting_poiseuille_spectrum.png")
+if __name__ == "__main__":
+    target_Pe = 8000
+    
+    # Compute spectrum exclusively at Pe = 8000
+    converged_evals = get_converged_spectra(target_Pe, N1=250, N2=300)
+    
+    # Plot the full raw output (no limits placed on the vertical Y-branch lines)
+    plot_single_pe_spectrum(target_Pe, converged_evals)
