@@ -85,4 +85,3 @@ plt.grid(False)
 
 plt.tight_layout()
 plt.savefig('a-1g0_smooth.png', dpi=300)
-plt.show()
