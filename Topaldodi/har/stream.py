@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 a = 3           # Matches figure caption
 G = 0
 Bo = 1000.0   
-Re_val = 100000
+Re_val = 1
 k_val = 20
 
 def build_and_solve_evp(N_res):
@@ -151,6 +151,6 @@ ax.text(-0.15, 1.05, '(a)', transform=ax.transAxes, fontsize=14, fontweight='bol
 # Colorbar matching the right panel layout
 cbar = fig.colorbar(contourf_plot, ax=ax, ticks=[-1, 0, 1], fraction=0.046, pad=0.04)
 cbar.ax.tick_params(labelsize=10)
-
+plt.savefig("Re1K20ng")
 plt.tight_layout()
 plt.show()
